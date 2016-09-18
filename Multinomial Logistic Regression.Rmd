@@ -1,0 +1,138 @@
+---
+title: "Multinomial Logistic Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+vars1 <- c("intecon", "degree", "rincome", "age", "rincom06", "educ")
+ds <- data.table::fread(
+  file.choose(), ## pick GSS-Cum.zip on Coursework under Data, unzip it and use the .csv##
+  sep = ",",
+  select = vars1,
+  data.table = FALSE)
+library(data.table)
+library(nnet)
+library(gmodels)
+library(plyr)
+library(ggplot2)
+library(survival)
+library(doBy)
+library(dplyr)
+library(tidyr)
+ds$rintecon = 4-ds$intecon
+ds$rncoe <- relevel(as.factor(ds$rintecon), ref = 2)
+```
+
+### *Research Topic*
+
+I would like to study what factors make people interested in economics and business. Specifically, I would like to know if education level and income level make a difference in one's interest in economics and business.
+People with higher education may be more interested in economic and business because they understand economics and business better than those who are less educated. For example, principle economics are required courses in most universities. These courses can inspire people's interests in economics and business. Additionally, people who earn more money may be more interested in economics and business because they may have extra money to make investment, or they more care about economics and business because their income may be correlated to current economic and business conditions. 
+
+### *Data*
+
+I used three variables from General Social Survey (GSS) to build my model. 
+
+My dependent variable is how interested the respondent finds economic and business conditions to be. Answers include options "very interested", "moderately interested", and "not at all interested".  I reverse-coded this variable to make 3 represents very interested, and 1 represents not at all interested.
+
+![](GSS I 1.png)
+
+I have two independent variables. The first one is the highest grade you finished, ranging from no formal school (0) to 20, which means graduate degree. 
+
+![](GSS I 2.png)
+
+My second independent variable is one's income before taxes last year, ranging from "under $1,000" to "$150,000 or over". 
+
+![](GSS I 3.png)
+
+### *Descriptive Statistics*
+
+```{r}
+with(ds, do.call(rbind, tapply(educ, rintecon, function(x) c(M = mean(x,na.rm=T), SD = sd(x,na.rm=T)))))
+with(ds, do.call(rbind, tapply(rincom06, rintecon, function(x) c(M = mean(x,na.rm=T), SD = sd(x,na.rm=T)))))
+```
+
+As we can see from the table above, the average school grade of choosing "very interested" is obviously higher than those choosing "moderately interested" and "not at all interested". Also, if we look at the average income level of each answer, we can conclude that income and interest in economics and business are positively related. Therefore, we can tell that income and education can be good predictors to one's interest in economics and business.
+
+### *Model and Analysis*
+
+I select multinomial logistic regression to analyze our question because multinomial logistic regression can be used to estimate nominal outcome variables. 
+
+```{r cars}
+mult = multinom(rncoe ~ rincom06 + educ, data=ds)
+summary(mult)
+```
+
+1.	For each higher level in income, the logit of being "not at all interested" in economic issues and business condition, compared to "moderately interested", decreases by 0.0304 on average.
+2.	For each higher level in income, the logit of being "very interested" in economic issues and business condition, compared to "moderately interested", increases by 0.0389 on average.
+3.	For each higher level in education, the logit of being "not at all interested" in economic issues and business condition, compared to "moderately interested", decreases by 0.159 on average.
+4.	For each higher level in education, the logit of being "very interested" in economic issues and business condition, compared to "moderately interested", increases by 0.049 on average.
+
+```{r}
+z <- summary(mult)$coefficients/summary(mult)$standard.errors
+z
+options(scipen=999)
+p <- (1 - pnorm(abs(z), 0, 1))*2
+p
+```
+
+From the P values we can tell that all variables are significant at 5% level.
+
+Z test for income:
+```{r}
+ztestincome = ((0.03042548-0.03896451)^2)/( 0.015316329^2 + 0.008922461^2)
+ztestincome
+pchisq(0.2320655, df = 1, lower.tail = F)
+```
+Based on the Chi-sq test, the slope of income for going from "not at all interested" to "moderately interested" equals to the slope of income for going from "moderately interested" to "very interested". 
+Alternatively speaking, income has same impact on making people interested in economics and business between from "not at all interested" to "moderately interested" and from "moderately interested" to "very interested".
+
+Z test for education:
+```{r}
+ztesteduc = ((0.15976318-0.04874032)^2)/( 0.03006256^2 + 0.01821465^2)
+ztesteduc
+pchisq(9.976339, df = 1, lower.tail = F)
+```
+Based on the Chi-sq test, the slope of education for going from "not at all interested" to "moderately interested" does not equal to the slope of education for going from "moderately interested" to "very interested". 
+Alternatively speaking, education has greater impact on making people interested in economics and business from "not at all interested" to "moderately interested", but education has less impact of moving from "moderately interested" to "very interested".
+
+```{r}
+exp(coef(mult))
+```
+1.	For each higher level in income, the odds of being "not at all interested" in economic issues and business condition, compared to "moderately interested", decreases by 3.00% on average.
+2.	For each higher level in income, the odds of being "very interested" in economic issues and business condition, compared to "moderately interested", increases by 3.97% on average.
+3.	For each higher level in education, the odds of being "not at all interested" in economic issues and business condition, compared to "moderately interested", decreases by 14.76% on average.
+4.	For each higher level in education, the odds of being "very interested" in economic issues and business condition, compared to "moderately interested", increases by 4.99% on average.
+
+
+### *Predictions*
+
+```{r}
+d10 <- expand.grid(educ = c(0:20), rincom06 = mean(ds$rincom06, na.rm=T))
+pp10.educ <- data.frame(educ=d10$educ, predict(mult, newdata = d10, type = "probs", se = TRUE))
+pp10.educ
+pp10.educ <-pp10.educ %>% gather(Interest, Probability, X2:X3)
+pp10.educ$Interest[pp10.educ$Interest == 'X1'] <- 'not at all interested'
+pp10.educ$Interest[pp10.educ$Interest == 'X2'] <- 'moderately interested'
+pp10.educ$Interest[pp10.educ$Interest == 'X3'] <- 'very interested'
+ggplot(pp10.educ, aes(x = educ, y = Probability, colour = Interest)) +
+  geom_line() + xlab('Education Level')
+```
+
+I set the income at its mean value and estimate the averaged predicted probabilities for each level of grade. The prediction shows that the probabilities of being very interested in economics and business increase when the grade increases. Another obvious finding is the predicted probabilities of being "not at all interested" in economics and business decrease when the grade increases.
+
+```{r}
+d11 <- expand.grid(educ = mean(ds$educ, na.rm=T), rincom06 = c(1:25))
+pp11.rincome <- data.frame(rincom06=d11$rincom06, predict(mult, newdata = d11, type = "probs", se = TRUE))
+pp11.rincome
+pp11.rincome <-pp11.rincome %>% gather(Interest, Probability, X2:X3)
+pp11.rincome$Interest[pp11.rincome$Interest == 'X1'] <- 'not at all interested'
+pp11.rincome$Interest[pp11.rincome$Interest == 'X2'] <- 'moderately interested'
+pp11.rincome$Interest[pp11.rincome$Interest == 'X3'] <- 'very interested'
+ggplot(pp11.rincome, aes(x = rincom06, y = Probability, colour = Interest)) +
+  geom_line() + xlab('Income Level')
+```
+
+I set the grade at its mean value and estimate the averaged predicted probabilities for each level of income. The prediction shows that the probabilities of being very interested in economics and business increase when the income increases, while the predicted probabilities of being "moderately interested" and "not at all interested" decrease as income increases in general.
+
+### *Conclusions*
+By the analysis I have done above, we are able to conclude that both income level and education level influence one's interest in economic issues and business conditions. Further research can study the exact reasons why more education and earnings lead higher interest in economics and business.
